@@ -101,17 +101,12 @@ module AptosFramework::Coin {
 
     // Public functions
 
-    /// Burn coin with capability.
+    /// Burn `coin` with capability.
     public fun burn<CoinType>(
-        account: &signer,
         coin: Coin<CoinType>,
-    ) acquires BurnCapability, CoinInfo {
-        let account_addr = Signer::address_of(account);
-        assert!(
-            exists<BurnCapability<CoinType>>(account_addr),
-            Errors::not_published(ENO_BURN_CAPABILITY),
-        );
-        let _cap = borrow_global<BurnCapability<CoinType>>(account_addr);
+        _cap: &BurnCapability<CoinType>,
+    ) acquires CoinInfo {
+        assert!(is_coin<CoinType>(), Errors::not_published(ECOIN_INFO_NOT_PUBLISHED));
 
         let Coin { value: amount } = coin;
 
@@ -121,6 +116,22 @@ module AptosFramework::Coin {
             let supply = Option::borrow_mut(supply);
             *supply = *supply - amount;
         }
+    }
+
+    public(script) fun burn_stored<CoinType>(
+        account: &signer,
+        amount: u64,
+    ) acquires CoinInfo, CoinStore, BurnCapability {
+        let account_addr = Signer::address_of(account);
+        assert!(
+            exists<BurnCapability<CoinType>>(account_addr),
+            Errors::not_published(ENO_MINT_CAPABILITY),
+        );
+
+        let cap = borrow_global<BurnCapability<CoinType>>(account_addr);
+        let to_burn = withdraw<CoinType>(account, amount);
+
+        burn(to_burn, cap)
     }
 
     /// Deposit the coin balance into the recipients account and emit an event.
@@ -154,12 +165,12 @@ module AptosFramework::Coin {
         Coin { value: amount }
     }
 
-    public(script) fun initialize<CoinType>(
+    public fun register_coin<CoinType>(
         account: &signer,
-        name: vector<u8>,
+        name: ASCII::String,
         scaling_factor: u64,
         monitor_supply: bool,
-    ) {
+    ): (MintCapability<CoinType>, BurnCapability<CoinType>) {
         let account_addr = Signer::address_of(account);
 
         let type_info = TypeInfo::type_of<CoinType>();
@@ -174,14 +185,30 @@ module AptosFramework::Coin {
         );
 
         let coin_info = CoinInfo<CoinType> {
-            name: ASCII::string(name),
+            name,
             scaling_factor,
             supply: if (monitor_supply) { Option::some(0) } else { Option::none() },
         };
         move_to(account, coin_info);
 
-        move_to(account, BurnCapability<CoinType> { });
-        move_to(account, MintCapability<CoinType> { });
+        (MintCapability<CoinType> { }, BurnCapability<CoinType> { })
+    }
+
+    public(script) fun register_coin_stored<CoinType>(
+        account: &signer,
+        name: vector<u8>,
+        scaling_factor: u64,
+        monitor_supply: bool,
+    ) {
+        let (mint_cap, burn_cap) = register_coin<CoinType>(
+            account,
+            ASCII::string(name),
+            scaling_factor,
+            monitor_supply,
+        );
+
+        move_to(account, mint_cap);
+        move_to(account, burn_cap);
     }
 
     /// "Merges" the two coins.
@@ -191,8 +218,26 @@ module AptosFramework::Coin {
         let Coin { value: _ } = source_coin;
     }
 
+    /// Mint new `Coin` with amount and capability.
+    /// Returns minted `Coin`.
+    public fun mint<CoinType>(
+        amount: u64,
+        _cap: &MintCapability<CoinType>,
+    ): Coin<CoinType> acquires CoinInfo {
+        assert!(is_coin<CoinType>(), Errors::not_published(ECOIN_INFO_NOT_PUBLISHED));
+
+        let coin_addr = TypeInfo::account_address(&TypeInfo::type_of<CoinType>());
+        let supply = &mut borrow_global_mut<CoinInfo<CoinType>>(coin_addr).supply;
+        if (Option::is_some(supply)) {
+            let supply = Option::borrow_mut(supply);
+            *supply = *supply - amount;
+        };
+
+        Coin<CoinType> { value: amount }
+    }
+
     /// Create new coins and deposit them into dst_addr's account.
-    public(script) fun mint<CoinType>(
+    public(script) fun mint_stored<CoinType>(
         account: &signer,
         dst_addr: address,
         amount: u64,
@@ -202,18 +247,14 @@ module AptosFramework::Coin {
             exists<MintCapability<CoinType>>(account_addr),
             Errors::not_published(ENO_MINT_CAPABILITY),
         );
-        let _cap = borrow_global<MintCapability<CoinType>>(account_addr);
-        deposit(dst_addr, Coin<CoinType> { value: amount });
 
-        let coin_addr = TypeInfo::account_address(&TypeInfo::type_of<CoinType>());
-        let supply = &mut borrow_global_mut<CoinInfo<CoinType>>(coin_addr).supply;
-        if (Option::is_some(supply)) {
-            let supply = Option::borrow_mut(supply);
-            *supply = *supply + amount;
-        }
+        let cap = borrow_global<MintCapability<CoinType>>(account_addr);
+        let minted = mint<CoinType>(amount, cap);
+
+        deposit(dst_addr, minted);
     }
 
-    public(script) fun register<CoinType>(account: &signer) {
+    public(script) fun sc_register<CoinType>(account: &signer) {
         assert!(
             !exists<CoinStore<CoinType>>(Signer::address_of(account)),
             Errors::already_published(ECOIN_STORE_ALREADY_PUBLISHED),
