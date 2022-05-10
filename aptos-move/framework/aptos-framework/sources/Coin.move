@@ -70,7 +70,7 @@ module AptosFramework::Coin {
 
     /// Returns `true` if the type `CoinType` is a registered coin.
     /// Returns `false` otherwise.
-    public fun is_coin<CoinType>(): bool {
+    public fun is_registered<CoinType>(): bool {
         let type_info = TypeInfo::type_of<CoinType>();
         let coin_address = TypeInfo::account_address(&type_info);
         exists<CoinInfo<CoinType>>(coin_address)
@@ -92,11 +92,6 @@ module AptosFramework::Coin {
         let type_info = TypeInfo::type_of<CoinType>();
         let coin_address = TypeInfo::account_address(&type_info);
         borrow_global<CoinInfo<CoinType>>(coin_address).supply
-    }
-
-    /// Returns the `value` of the passed in `coin`. 
-    public fun value<CoinType>(coin: &Coin<CoinType>): u64 {
-        coin.value
     }
 
     // Public functions
@@ -220,6 +215,11 @@ module AptosFramework::Coin {
     ) acquires CoinStore {
         let coin = withdraw<CoinType>(from, amount);
         deposit(to, coin);
+    }
+
+    /// Returns the `value` of the passed in `coin`.
+    public fun value<CoinType>(coin: &Coin<CoinType>): u64 {
+        coin.value
     }
 
     public fun withdraw<CoinType>(
@@ -429,15 +429,15 @@ module AptosFramework::Coin {
     }
 
     #[test(source = @0x1)]
-    public fun test_is_coin(source: signer) {
-        assert!(!is_coin<FakeMoney>(), 0);
+    public fun test_is_registered(source: signer) {
+        assert!(!is_registered<FakeMoney>(), 0);
         let (mint_cap, burn_cap) = initialize<FakeMoney>(
             &source,
             ASCII::string(b"Fake money"),
             1,
             true
         );
-        assert!(is_coin<FakeMoney>(), 1);
+        assert!(is_registered<FakeMoney>(), 1);
 
         move_to(&source, FakeMoneyCapabilities{
             mint_cap,

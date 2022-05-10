@@ -71,6 +71,9 @@ workspace-members = [
     "x",
     "x-core",
     "x-lint",
+
+    # Don't consider since it includes excluded move crates
+    "move-deps",
 ]
 
 [hakari.final-excludes]
@@ -164,7 +167,6 @@ members = [
     # Please keep this list in alphabetical order!
 
     "testcases",
-    "aptos-e2e-tests-replay",
     "aptos-fuzz",
     "aptos-fuzzer",
     "aptos-keygen",

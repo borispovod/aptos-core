@@ -24,16 +24,12 @@ mod error;
 pub use error::*;
 mod execution_config;
 pub use execution_config::*;
-mod key_manager_config;
-pub use key_manager_config::*;
 mod logger_config;
 pub use logger_config::*;
 mod mempool_config;
 pub use mempool_config::*;
 mod network_config;
 pub use network_config::*;
-mod json_rpc_config;
-pub use json_rpc_config::*;
 mod secure_backend_config;
 pub use secure_backend_config::*;
 mod state_sync_config;
@@ -74,8 +70,6 @@ pub struct NodeConfig {
     pub mempool: MempoolConfig,
     #[serde(default)]
     pub metrics: DeprecatedConfig,
-    #[serde(default)]
-    pub json_rpc: JsonRpcConfig,
     #[serde(default)]
     pub api: ApiConfig,
     #[serde(default)]
@@ -292,7 +286,6 @@ impl NodeConfig {
 
     pub fn randomize_ports(&mut self) {
         self.debug_interface.randomize_ports();
-        self.json_rpc.randomize_ports();
         self.api.randomize_ports();
         self.storage.randomize_ports();
 
