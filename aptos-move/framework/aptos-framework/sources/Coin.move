@@ -106,8 +106,6 @@ module AptosFramework::Coin {
         coin: Coin<CoinType>,
         _cap: &BurnCapability<CoinType>,
     ) acquires CoinInfo {
-        assert!(is_coin<CoinType>(), Errors::not_published(ECOIN_INFO_NOT_PUBLISHED));
-
         let Coin { value: amount } = coin;
 
         let coin_addr = TypeInfo::account_address(&TypeInfo::type_of<CoinType>());
@@ -117,24 +115,7 @@ module AptosFramework::Coin {
             *supply = *supply - amount;
         }
     }
-
-    public(script) fun burn_stored<CoinType>(
-        account: &signer,
-        amount: u64,
-    ) acquires CoinInfo, CoinStore, BurnCapability {
-        let account_addr = Signer::address_of(account);
-        assert!(
-            exists<BurnCapability<CoinType>>(account_addr),
-            Errors::not_published(ENO_MINT_CAPABILITY),
-        );
-
-        let cap = borrow_global<BurnCapability<CoinType>>(account_addr);
-        let to_burn = withdraw<CoinType>(account, amount);
-
-        burn(to_burn, cap)
-    }
-
-    /// Deposit the coin balance into the recipients account and emit an event.
+    /// Deposit the coin  balance into the recipients account and emit an event.
     public fun deposit<CoinType>(account_addr: address, coin: Coin<CoinType>) acquires CoinStore {
         assert!(
             exists<CoinStore<CoinType>>(account_addr),
@@ -165,7 +146,7 @@ module AptosFramework::Coin {
         Coin { value: amount }
     }
 
-    public fun register_coin<CoinType>(
+    public fun initialize<CoinType>(
         account: &signer,
         name: ASCII::String,
         scaling_factor: u64,
@@ -194,23 +175,6 @@ module AptosFramework::Coin {
         (MintCapability<CoinType> { }, BurnCapability<CoinType> { })
     }
 
-    public(script) fun register_coin_stored<CoinType>(
-        account: &signer,
-        name: vector<u8>,
-        scaling_factor: u64,
-        monitor_supply: bool,
-    ) {
-        let (mint_cap, burn_cap) = register_coin<CoinType>(
-            account,
-            ASCII::string(name),
-            scaling_factor,
-            monitor_supply,
-        );
-
-        move_to(account, mint_cap);
-        move_to(account, burn_cap);
-    }
-
     /// "Merges" the two coins.
     /// The coin passed in as `dst_coin` will have a value equal to the sum of the two tokens (`dst_coin` and `source_coin`).
     public fun merge<CoinType>(dst_coin: &mut Coin<CoinType>, source_coin: Coin<CoinType>) {
@@ -224,37 +188,17 @@ module AptosFramework::Coin {
         amount: u64,
         _cap: &MintCapability<CoinType>,
     ): Coin<CoinType> acquires CoinInfo {
-        assert!(is_coin<CoinType>(), Errors::not_published(ECOIN_INFO_NOT_PUBLISHED));
-
         let coin_addr = TypeInfo::account_address(&TypeInfo::type_of<CoinType>());
         let supply = &mut borrow_global_mut<CoinInfo<CoinType>>(coin_addr).supply;
         if (Option::is_some(supply)) {
             let supply = Option::borrow_mut(supply);
-            *supply = *supply - amount;
+            *supply = *supply + amount;
         };
 
         Coin<CoinType> { value: amount }
     }
 
-    /// Create new coins and deposit them into dst_addr's account.
-    public(script) fun mint_stored<CoinType>(
-        account: &signer,
-        dst_addr: address,
-        amount: u64,
-    ) acquires CoinInfo, CoinStore, MintCapability {
-        let account_addr = Signer::address_of(account);
-        assert!(
-            exists<MintCapability<CoinType>>(account_addr),
-            Errors::not_published(ENO_MINT_CAPABILITY),
-        );
-
-        let cap = borrow_global<MintCapability<CoinType>>(account_addr);
-        let minted = mint<CoinType>(amount, cap);
-
-        deposit(dst_addr, minted);
-    }
-
-    public(script) fun sc_register<CoinType>(account: &signer) {
+    public fun register<CoinType>(account: &signer) {
         assert!(
             !exists<CoinStore<CoinType>>(Signer::address_of(account)),
             Errors::already_published(ECOIN_STORE_ALREADY_PUBLISHED),
@@ -310,20 +254,33 @@ module AptosFramework::Coin {
     #[test_only]
     struct FakeMoney { }
 
+    #[test_only]
+    struct FakeMoneyCapabilities has key {
+        mint_cap: MintCapability<FakeMoney>,
+        burn_cap: BurnCapability<FakeMoney>,
+    }
+
     #[test(source = @0x1, destination = @0x2)]
     public(script) fun end_to_end(
         source: signer,
         destination: signer,
-    ) acquires BurnCapability, CoinStore, CoinInfo, MintCapability {
+    ) acquires CoinStore, CoinInfo {
         let source_addr = Signer::address_of(&source);
         let destination_addr = Signer::address_of(&destination);
 
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
+        let (mint_cap, burn_cap) = initialize<FakeMoney>(
+            &source,
+            ASCII::string(b"Fake money"),
+            1,
+            true
+        );
+
         register<FakeMoney>(&source);
         register<FakeMoney>(&destination);
         assert!(*Option::borrow(&supply<FakeMoney>()) == 0, 0);
 
-        mint<FakeMoney>(&source, source_addr, 100);
+        let coins_minted = mint<FakeMoney>(100, &mint_cap);
+        deposit(source_addr, coins_minted);
         transfer<FakeMoney>(&source, destination_addr, 50);
 
         assert!(balance<FakeMoney>(source_addr) == 50, 1);
@@ -332,24 +289,36 @@ module AptosFramework::Coin {
 
         let coin = withdraw<FakeMoney>(&source, 10);
         assert!(value(&coin) == 10, 4);
-        burn(&source, coin);
+        burn(coin, &burn_cap);
         assert!(*Option::borrow(&supply<FakeMoney>()) == 90, 5);
+
+        move_to(&source, FakeMoneyCapabilities{
+            mint_cap,
+            burn_cap,
+        });
     }
 
     #[test(source = @0x1, destination = @0x2)]
     public(script) fun end_to_end_no_supply(
         source: signer,
         destination: signer,
-    ) acquires BurnCapability, CoinStore, CoinInfo, MintCapability {
+    ) acquires CoinStore, CoinInfo {
         let source_addr = Signer::address_of(&source);
         let destination_addr = Signer::address_of(&destination);
 
-        initialize<FakeMoney>(&source, b"Fake money", 1, false);
+        let (mint_cap, burn_cap) = initialize<FakeMoney>(
+            &source,
+            ASCII::string(b"Fake money"),
+            1,
+            false
+        );
+
         register<FakeMoney>(&source);
         register<FakeMoney>(&destination);
         assert!(Option::is_none(&supply<FakeMoney>()), 0);
 
-        mint<FakeMoney>(&source, source_addr, 100);
+        let coins_minted = mint<FakeMoney>(100, &mint_cap);
+        deposit(source_addr, coins_minted);
         transfer<FakeMoney>(&source, destination_addr, 50);
 
         assert!(balance<FakeMoney>(source_addr) == 50, 1);
@@ -357,14 +326,29 @@ module AptosFramework::Coin {
         assert!(Option::is_none(&supply<FakeMoney>()), 3);
 
         let coin = withdraw<FakeMoney>(&source, 10);
-        burn(&source, coin);
+        burn(coin, &burn_cap);
         assert!(Option::is_none(&supply<FakeMoney>()), 4);
+
+        move_to(&source, FakeMoneyCapabilities{
+            mint_cap,
+            burn_cap,
+        });
     }
 
     #[test(source = @0x2)]
     #[expected_failure(abort_code = 7)]
-    public(script) fun fail_initialize(source: signer) {
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
+    public fun fail_initialize(source: signer) {
+        let (mint_cap, burn_cap) = initialize<FakeMoney>(
+            &source,
+            ASCII::string(b"Fake money"),
+            1,
+            true
+        );
+
+        move_to(&source, FakeMoneyCapabilities{
+            mint_cap,
+            burn_cap,
+        });
     }
 
     #[test(source = @0x1, destination = @0x2)]
@@ -372,90 +356,93 @@ module AptosFramework::Coin {
     public(script) fun fail_transfer(
         source: signer,
         destination: signer,
-    ) acquires CoinStore, CoinInfo, MintCapability {
+    ) acquires CoinStore, CoinInfo {
         let source_addr = Signer::address_of(&source);
         let destination_addr = Signer::address_of(&destination);
 
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
+        let (mint_cap, burn_cap) = initialize<FakeMoney>(
+            &source,
+            ASCII::string(b"Fake money"),
+            1,
+            true);
         register<FakeMoney>(&source);
         assert!(*Option::borrow(&supply<FakeMoney>()) == 0, 0);
 
-        mint<FakeMoney>(&source, source_addr, 100);
+        let coins_minted = mint<FakeMoney>(100, &mint_cap);
+        deposit(source_addr, coins_minted);
+
         transfer<FakeMoney>(&source, destination_addr, 50);
-    }
 
-    #[test(source = @0x1, destination = @0x2)]
-    #[expected_failure(abort_code = 1797)]
-    public(script) fun fail_mint(
-        source: signer,
-        destination: signer,
-    ) acquires CoinStore, CoinInfo, MintCapability {
-        let source_addr = Signer::address_of(&source);
-
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
-        register<FakeMoney>(&source);
-        register<FakeMoney>(&destination);
-        assert!(*Option::borrow(&supply<FakeMoney>()) == 0, 0);
-
-        mint<FakeMoney>(&destination, source_addr, 100);
-    }
-
-    #[test(source = @0x1, destination = @0x2)]
-    #[expected_failure(abort_code = 1541)]
-    public(script) fun fail_burn(
-        source: signer,
-        destination: signer,
-    ) acquires BurnCapability, CoinStore, CoinInfo, MintCapability {
-        let source_addr = Signer::address_of(&source);
-
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
-        register<FakeMoney>(&source);
-        register<FakeMoney>(&destination);
-
-        mint<FakeMoney>(&source, source_addr, 100);
-        let coin = withdraw<FakeMoney>(&source, 10);
-        burn(&destination, coin);
+        move_to(&source, FakeMoneyCapabilities{
+            mint_cap,
+            burn_cap,
+        });
     }
 
     #[test(source = @0x1)]
     #[expected_failure(abort_code = 2055)]
-    public(script) fun test_destroy_non_zero(source: signer) acquires CoinInfo, CoinStore, MintCapability {
-        let source_addr = Signer::address_of(&source);
-
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
+    public fun test_destroy_non_zero(source: signer) acquires CoinInfo {
+        let (mint_cap, burn_cap) = initialize<FakeMoney>(
+            &source,
+            ASCII::string(b"Fake money"),
+            1,
+            true
+        );
         register<FakeMoney>(&source);
 
-        mint<FakeMoney>(&source, source_addr, 100);
-        let coin = withdraw<FakeMoney>(&source, 100);
+        let coins_minted = mint<FakeMoney>(100, &mint_cap);
+        destroy_zero(coins_minted);
 
-        destroy_zero(coin);
+        move_to(&source, FakeMoneyCapabilities{
+            mint_cap,
+            burn_cap,
+        });
     }
 
     #[test(source = @0x1)]
-    public(script) fun test_extract(source: signer) acquires CoinInfo, CoinStore, MintCapability {
+    public fun test_extract(source: signer) acquires CoinInfo, CoinStore {
         let source_addr = Signer::address_of(&source);
 
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
+        let (mint_cap, burn_cap) = initialize<FakeMoney>(
+            &source,
+            ASCII::string(b"Fake money"),
+            1,
+            true
+        );
         register<FakeMoney>(&source);
 
-        mint<FakeMoney>(&source, source_addr, 100);
-        let coin = withdraw<FakeMoney>(&source, 100);
+        let coins_minted =  mint<FakeMoney>(100, &mint_cap);
 
-        let extracted = extract(&mut coin, 25);
-        assert!(value(&coin) == 75, 0);
+        let extracted = extract(&mut coins_minted, 25);
+        assert!(value(&coins_minted) == 75, 0);
         assert!(value(&extracted) == 25, 1);
 
-        deposit(source_addr, coin);
+        deposit(source_addr, coins_minted);
         deposit(source_addr, extracted);
 
         assert!(balance<FakeMoney>(source_addr) == 100, 4);
+
+        move_to(&source, FakeMoneyCapabilities{
+            mint_cap,
+            burn_cap,
+        });
     }
 
     #[test(source = @0x1)]
-    public(script) fun test_is_coin(source: signer) {
+    public fun test_is_coin(source: signer) {
         assert!(!is_coin<FakeMoney>(), 0);
-        initialize<FakeMoney>(&source, b"Fake money", 1, true);
+        let (mint_cap, burn_cap) = initialize<FakeMoney>(
+            &source,
+            ASCII::string(b"Fake money"),
+            1,
+            true
+        );
         assert!(is_coin<FakeMoney>(), 1);
+
+        move_to(&source, FakeMoneyCapabilities{
+            mint_cap,
+            burn_cap,
+        });
     }
 
     #[test]
