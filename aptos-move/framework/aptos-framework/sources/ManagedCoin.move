@@ -1,6 +1,6 @@
-/// ManagedCoin is built to make simple wolkround through Coins module.
+/// ManagedCoin is built to make a simple walkthrough of the Coins module.
 /// It contains scripts you will need to initialize, mint, burn, transfer coins.
-/// By utilizing the current module developer can create his own coin and less care about mint and burn capabilities,
+/// By utilizing this current module, a developer can create his own coin and care less about mint and burn capabilities,
 module AptosFramework::ManagedCoin {
     use Std::ASCII;
     use Std::Errors;
@@ -17,7 +17,7 @@ module AptosFramework::ManagedCoin {
     // Data structures
 
     /// Capabilities resource storing mint and burn capabilities.
-    /// The resource stored on account who initialized coin `CoinType`.
+    /// The resource is stored on the account that initialized coin `CoinType`.
     struct Capabilities<phantom CoinType> has key {
         mint_cap: MintCapability<CoinType>,
         burn_cap: BurnCapability<CoinType>,
@@ -65,7 +65,7 @@ module AptosFramework::ManagedCoin {
         });
     }
 
-    /// Create new coins `CoinTyp`e and deposit them into dst_addr's account.
+    /// Create new coins `CoinType' and deposit them into dst_addr's account.
     public(script) fun mint<CoinType>(
         account: &signer,
         dst_addr: address,
@@ -83,8 +83,8 @@ module AptosFramework::ManagedCoin {
         Coin::deposit(dst_addr, coins_minted);
     }
 
-    /// Creating resource that stores balance of `CoinType` on user account, withdraw and deposit event handlers.
-    /// Required if user wants to start accepting deposits of `CoinType` on his account.
+    /// Creating a resource that stores balance of `CoinType` on user's account, withdraw and deposit event handlers.
+    /// Required if user wants to start accepting deposits of `CoinType` in his account.
     public(script) fun register<CoinType>(account: &signer) {
         Coin::register<CoinType>(account);
     }
