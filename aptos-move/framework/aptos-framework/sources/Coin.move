@@ -218,7 +218,7 @@ module AptosFramework::Coin {
         Coin<CoinType> { value: amount }
     }
 
-    /// Creating resource stored balance of `CoinType` on user account, withdraw and deposit event handlers.
+    /// Creating resource that stores balance of `CoinType` on user account, withdraw and deposit event handlers.
     /// Required if user wants to start accepting deposits of `CoinType` on his account.
     public fun register<CoinType>(account: &signer) {
         assert!(
@@ -234,7 +234,7 @@ module AptosFramework::Coin {
         move_to(account, coin_store);
     }
 
-    /// Transfers `amount` of coins from `from` to `to`.
+    /// Transfers `amount` of coins `CoinType` from `from` to `to`.
     public(script) fun transfer<CoinType>(
         from: &signer,
         to: address,
