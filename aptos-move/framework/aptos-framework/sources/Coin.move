@@ -8,43 +8,58 @@ module AptosFramework::Coin {
 
     use AptosFramework::TypeInfo;
 
+    // Errors.
+
+    /// When address of account which used to initilize a coin `CoinType`
+    /// doesn't match to deployer of module contains `CoinType`.
     const ECOIN_INFO_ADDRESS_MISMATCH: u64 = 0;
+
+    /// When `CoinType` already initilized as coin.
     const ECOIN_INFO_ALREADY_PUBLISHED: u64 = 1;
+
+    /// When `CoinType` hasn't been initialized as coin.
     const ECOIN_INFO_NOT_PUBLISHED: u64 = 2;
+
+    /// When account already has `CoinStore` registered for `CoinType`.
     const ECOIN_STORE_ALREADY_PUBLISHED: u64 = 3;
+
+    /// When account hasn't registered `CoinStore` for `CoinType`.
     const ECOIN_STORE_NOT_PUBLISHED: u64 = 4;
+
+    /// When there's not enough funds to withdraw from an account or from `Coin` resource.
     const EINSUFFICIENT_BALANCE: u64 = 5;
-    const ENO_BURN_CAPABILITY: u64 = 6;
-    const ENO_MINT_CAPABILITY: u64 = 7;
-    const EDESTRUCTION_OF_NONZERO_TOKEN: u64 = 8;
+
+    /// When destruction of `Coin` resource contains non-zero value attempted.
+    const EDESTRUCTION_OF_NONZERO_TOKEN: u64 = 6;
 
     // Core data structures
 
-    // Represents a set amount of coin
+    /// Represents a set amount of coin.
     struct Coin<phantom CoinType> has store {
         value: u64,
     }
 
-    // Represents ownership of coin
+    /// Represents ownership of coin `CoinType` under account.
     struct CoinStore<phantom CoinType> has key {
         coin: Coin<CoinType>,
         deposit_events: EventHandle<DepositEvent>,
         withdraw_events: EventHandle<WithdrawEvent>,
     }
 
-    // Represents resources associated with a coin
+    /// Represents resources storing name, scaling factor and supply,
+    /// associated with a coin `CoinType`.
     struct CoinInfo<phantom CoinType> has key {
         name: ASCII::String,
         scaling_factor: u64,
         supply: Option<u64>,
     }
 
-    // Set of data sent to the event stream during a receive
+    /// Set of data sent to the event stream during a receive.
     struct DepositEvent has drop, store {
         amount: u64,
     }
 
-    // Set of data sent to the event stream during a withdrawal
+    /// Set of data sent to the event stream during a withdrawal.
     struct WithdrawEvent has drop, store {
         amount: u64,
     }
@@ -59,7 +74,7 @@ module AptosFramework::Coin {
     // Getter functions
     //
 
-    /// Returns the balance of `owner`.
+    /// Returns the balance of `owner` for provided `CoinType`.
     public fun balance<CoinType>(owner: address): u64 acquires CoinStore {
         assert!(
             exists<CoinStore<CoinType>>(owner),
@@ -76,18 +91,24 @@ module AptosFramework::Coin {
         exists<CoinInfo<CoinType>>(coin_address)
     }
 
+    /// Returns the name for registered coin `CoinType` as defined in
+    /// it's `CoinInfo` resource.
     public fun name<CoinType>(): ASCII::String acquires CoinInfo {
         let type_info = TypeInfo::type_of<CoinType>();
         let coin_address = TypeInfo::account_address(&type_info);
         borrow_global<CoinInfo<CoinType>>(coin_address).name
     }
 
+    /// Returns the scaling factor for registered coin `CoinType`
+    /// as defined in it's `CoinInfo` resource.
     public fun scaling_factor<CoinType>(): u64 acquires CoinInfo {
         let type_info = TypeInfo::type_of<CoinType>();
         let coin_address = TypeInfo::account_address(&type_info);
         borrow_global<CoinInfo<CoinType>>(coin_address).scaling_factor
     }
 
+    /// Returns the supply for registered coin `CoinType`
+    /// which stored in it's `CoinInfo` resource.
     public fun supply<CoinType>(): Option<u64> acquires CoinInfo {
         let type_info = TypeInfo::type_of<CoinType>();
         let coin_address = TypeInfo::account_address(&type_info);
@@ -97,6 +118,7 @@ module AptosFramework::Coin {
     // Public functions
 
     /// Burn `coin` with capability.
+    /// The capability `_cap` should be passed as reference to `BurnCapability<CoinType>`.
     public fun burn<CoinType>(
         coin: Coin<CoinType>,
         _cap: &BurnCapability<CoinType>,
@@ -110,7 +132,7 @@ module AptosFramework::Coin {
             *supply = *supply - amount;
         }
     }
-    /// Deposit the coin  balance into the recipients account and emit an event.
+    /// Deposit the coin balance into the recipients account and emit an event.
     public fun deposit<CoinType>(account_addr: address, coin: Coin<CoinType>) acquires CoinStore {
         assert!(
             exists<CoinStore<CoinType>>(account_addr),
@@ -141,6 +163,8 @@ module AptosFramework::Coin {
         Coin { value: amount }
     }
 
+    /// Initializing new coin `CoinType` in the Aptos blockchain.
+    /// Returns both Mint and Burn Capabilities which can be used to mint new coins and burn existing ones.
     public fun initialize<CoinType>(
         account: &signer,
         name: ASCII::String,
@@ -177,7 +201,8 @@ module AptosFramework::Coin {
         let Coin { value: _ } = source_coin;
     }
 
-    /// Mint new `Coin` with amount and capability.
+    /// Mint new `Coin` with `amount` and capability.
+    /// The capability `_cap` should be passed as reference to `MintCapability<CoinType>`.
     /// Returns minted `Coin`.
     public fun mint<CoinType>(
         amount: u64,
@@ -193,6 +218,8 @@ module AptosFramework::Coin {
         Coin<CoinType> { value: amount }
     }
 
+    /// Creating resource stored balance of `CoinType` on user account, withdraw and deposit event handlers.
+    /// Required if user wants to start accepting deposits of `CoinType` on his account.
     public fun register<CoinType>(account: &signer) {
         assert!(
             !exists<CoinStore<CoinType>>(Signer::address_of(account)),
@@ -222,6 +249,8 @@ module AptosFramework::Coin {
         coin.value
     }
 
+    /// Withdraw the `amount` of coin `CoinType` from user `account` balance.
+    /// Returns withdrawn `Coin<CoinType>`.
     public fun withdraw<CoinType>(
         account: &signer,
         amount: u64,
@@ -242,6 +271,7 @@ module AptosFramework::Coin {
     }
 
     /// Create a new `Coin<CoinType>` with a value of `0`.
+    /// Returns a new `Coin<CoinType>`.
     public fun zero<CoinType>(): Coin<CoinType> {
         Coin<CoinType> {
             value: 0
@@ -380,7 +410,7 @@ module AptosFramework::Coin {
     }
 
     #[test(source = @0x1)]
-    #[expected_failure(abort_code = 2055)]
+    #[expected_failure(abort_code = 1543)]
     public fun test_destroy_non_zero(source: signer) acquires CoinInfo {
         let (mint_cap, burn_cap) = initialize<FakeMoney>(
             &source,
